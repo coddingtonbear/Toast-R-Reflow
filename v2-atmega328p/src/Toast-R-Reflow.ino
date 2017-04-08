@@ -84,7 +84,7 @@ board, which is model II.
 
 // How long does the button have to stay down before we call it a LONG push?
 #define BUTTON_LONG_START 250
-#define BUTTON_VERY_LONG_START 3000
+#define BUTTON_VERY_LONG_START 8000
 
 // This is the enumeration of the output values for checkEvent()
 #define EVENT_NONE 0
@@ -449,7 +449,7 @@ void setup() {
     Delay(1000);
   }
 
-  if(digitalRead(BUTTON_SELECT) == LOW) {
+  while(digitalRead(BUTTON_SELECT) == LOW) {
     display.clear();
     display.setCursor(0, 0);
     display.print(P("Kp:"));
