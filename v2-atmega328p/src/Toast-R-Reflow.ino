@@ -70,14 +70,14 @@ board, which is model II.
 #define K_VALUES_EEPROM_ADDRESS 0
 #define K_VALUES_EEPROM_MAGIC_VALUE 224
 
-#define AUTOTUNE_START_VALUE 200
-#define AUTOTUNE_LOOKBACK 20
+#define AUTOTUNE_START_VALUE 20
+#define AUTOTUNE_LOOKBACK 30
 #define AUTOTUNE_STEP 10
-#define AUTOTUNE_NOISE 1
+#define AUTOTUNE_NOISE 4
 
 // The number of milliseconds for each cycle of the control output.
 // The duty cycle is adjusted by the PID.
-#define PWM_PULSE_WIDTH 1000
+#define PWM_PULSE_WIDTH 100
 
 // If we see any state change on the button, we ignore all changes for this long
 #define BUTTON_DEBOUNCE_INTERVAL 50
