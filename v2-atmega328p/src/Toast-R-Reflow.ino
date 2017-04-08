@@ -28,8 +28,10 @@ board, which is model II.
 
 #include <avr/pgmspace.h>
 #include <avr/wdt.h>
+#include <EEPROM.h>
 #include <LiquidCrystal.h>
 #include <PID_v1.h>
+#include <PID_AutoTune_v0.h>
 
 // The pins connected to the MAX31855 thermocouple chip.
 #define TEMP_CS 7
@@ -65,6 +67,14 @@ board, which is model II.
 #define K_I 0.1
 #define K_D 10
 
+#define K_VALUES_EEPROM_ADDRESS 0
+#define K_VALUES_EEPROM_MAGIC_VALUE 224
+
+#define AUTOTUNE_START_VALUE 200
+#define AUTOTUNE_LOOKBACK 20
+#define AUTOTUNE_STEP 10
+#define AUTOTUNE_NOISE 1
+
 // The number of milliseconds for each cycle of the control output.
 // The duty cycle is adjusted by the PID.
 #define PWM_PULSE_WIDTH 1000
@@ -74,11 +84,13 @@ board, which is model II.
 
 // How long does the button have to stay down before we call it a LONG push?
 #define BUTTON_LONG_START 250
+#define BUTTON_VERY_LONG_START 3000
 
 // This is the enumeration of the output values for checkEvent()
 #define EVENT_NONE 0
 #define EVENT_SHORT_PUSH 1
 #define EVENT_LONG_PUSH 2
+#define EVENT_VERY_LONG_PUSH 3
 
 // This is the magic value for the degree mark for the display. If your display
 // happens to have some sort of whacky Kanji character instead, then you'll need
@@ -100,7 +112,7 @@ board, which is model II.
 char p_buffer[17];
 #define P(str) (strncpy_P(p_buffer, PSTR(str), sizeof(p_buffer)), p_buffer)
 
-#define VERSION "(II) 1.2"
+#define VERSION "(II) 1.3a"
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
@@ -202,6 +214,7 @@ boolean fault; // This is set by updateTemp()
 unsigned char fault_bits; // This too.
 
 PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
+PID_ATune aTune(&currentTemp, &outputDuty);
 
 // Delay, but pet the watchdog while doing it.
 static void Delay(unsigned long ms) {
@@ -241,7 +254,9 @@ static unsigned int checkEvent() {
     button_debounce_time = now;
     unsigned long push_duration = now - button_press_time;
     button_press_time = 0;
-    if (push_duration > BUTTON_LONG_START) {
+    if (push_duration > BUTTON_VERY_LONG_START) {
+      return EVENT_VERY_LONG_PUSH;
+    } else if (push_duration > BUTTON_LONG_START) {
       return EVENT_LONG_PUSH;
     } else {
       return EVENT_SHORT_PUSH;
@@ -305,6 +320,38 @@ static inline void updateTemp() {
   
 }
 
+void setOvenState() {
+  // The concept here is that we have two heating elements
+  // that we can independently control.
+  //
+  // We could just turn them on and off at the same time, but
+  // then why did we go to the trouble of buying two triacs?
+  //
+  // Instead, we can try and arrange them to pulse at different times.
+  // This will help encourage convection (hopefully), as well as
+  // reducing the instantaneous power demand (at least when the duty cycle
+  // is less than 50%).
+  //
+  // So start one of them (#2) at the beginning of the interval, and end the other (#1)
+  // at the end of the interval.
+  unsigned long now = millis();
+  if (pwm_time == 0 || now - pwm_time > PWM_PULSE_WIDTH) {
+    // Time to start a new PWM interval.
+    pwm_time = now;
+    // Turn element one off. We may turn it on later.
+    digitalWrite(ELEMENT_ONE_PIN, LOW);
+    // Only start element two if we're actually going to do *anything*
+    // We will turn it off later.
+    digitalWrite(ELEMENT_TWO_PIN, (outputDuty > 0.0)?HIGH:LOW);
+  } else {
+    // We're somewhere in the middle of the current interval.
+    unsigned long place_in_pulse = now - pwm_time;
+    if (place_in_pulse >= outputDuty)
+      digitalWrite(ELEMENT_TWO_PIN, LOW); // their pulse is over - turn the juice off
+    if (place_in_pulse >= (PWM_PULSE_WIDTH - outputDuty))
+      digitalWrite(ELEMENT_ONE_PIN, HIGH); // their pulse is ready to begin - turn the juice on
+  }
+
 
 // Call this when the cycle is finished. Also, call it at
 // startup to initialize everything.
@@ -367,6 +414,66 @@ void setup() {
   digitalWrite(TEMP_CS, HIGH);
   
   pinMode(BUTTON_SELECT, INPUT_PULLUP);
+
+  display.clear();
+  
+  display.setCursor(0,0);
+  display.print(P("Toast-R-Reflow"));
+  display.setCursor(0, 1);
+  display.print(P(VERSION));
+  
+  Delay(2000);
+
+  double kp, ki, kd;
+  kp = K_P;
+  ki = K_I;
+  kd = K_D;
+
+  // Load Kp, Ki, Kd from EEPROM if available
+  int address = K_VALUES_EEPROM_ADDRESS;
+  if((uint8_t)EEPROM.read(address) == K_VALUES_EEPROM_MAGIC_VALUE) {
+    address += sizeof(byte);
+    EEPROM.get(address, kp);
+    address += sizeof(double);
+    EEPROM.get(address, ki);
+    address += sizeof(double);
+    EEPROM.get(address, kd);
+
+    pid.SetTunings(kp, ki, kd);
+
+    display.clear();
+    display.setCursor(0, 0);
+    display.print(P("Autotune settings"));
+    display.setCursor(0, 1);
+    display.print(P("loaded."));
+    Delay(1000);
+  }
+
+  if(digitalRead(BUTTON_SELECT) == LOW) {
+    display.clear();
+    display.setCursor(0, 0);
+    display.print(P("Kp:"));
+    dtostrf(kp, 8, 4, p_buffer);
+    display.setCursor(0, 1);
+    display.print(p_buffer);
+    Delay(2000);
+
+    display.clear();
+    display.setCursor(0, 0);
+    display.print(P("Ki:"));
+    dtostrf(ki, 8, 4, p_buffer);
+    display.setCursor(0, 1);
+    display.print(p_buffer);
+    Delay(2000);
+
+    display.clear();
+    display.setCursor(0, 0);
+    display.print(P("Kd:"));
+    dtostrf(kd, 8, 4, p_buffer);
+    display.setCursor(0, 1);
+    display.print(p_buffer);
+    Delay(2000);
+  }
   
   pid.SetOutputLimits(0.0, PWM_PULSE_WIDTH);
   pid.SetMode(MANUAL);
@@ -380,14 +487,6 @@ void setup() {
   active_profile = 0;
   faulted = false;
   
-  display.clear();
-  
-  display.setCursor(0,0);
-  display.print(P("Toast-R-Reflow"));
-  display.setCursor(0, 1);
-  display.print(P(VERSION));
-  
-  Delay(2000);
   finish();
 }
 
@@ -429,6 +528,9 @@ void loop() {
     // We're not running. Wait for the button.
     unsigned int event = checkEvent();
     switch(event) {
+      case EVENT_VERY_LONG_PUSH:
+        pidAutotune();
+        break;
       case EVENT_LONG_PUSH:
         if (++active_profile >= PROFILE_COUNT) active_profile = 0;
         display.setCursor(10, 0);
@@ -521,35 +623,8 @@ void loop() {
           break;
       }
     }
-    // The concept here is that we have two heating elements
-    // that we can independently control.
-    //
-    // We could just turn them on and off at the same time, but
-    // then why did we go to the trouble of buying two triacs?
-    //
-    // Instead, we can try and arrange them to pulse at different times.
-    // This will help encourage convection (hopefully), as well as
-    // reducing the instantaneous power demand (at least when the duty cycle
-    // is less than 50%).
-    //
-    // So start one of them (#2) at the beginning of the interval, and end the other (#1)
-    // at the end of the interval.
-    if (pwm_time == 0 || now - pwm_time > PWM_PULSE_WIDTH) {
-      // Time to start a new PWM interval.
-      pwm_time = now;
-      // Turn element one off. We may turn it on later.
-      digitalWrite(ELEMENT_ONE_PIN, LOW);
-      // Only start element two if we're actually going to do *anything*
-      // We will turn it off later.
-      digitalWrite(ELEMENT_TWO_PIN, (outputDuty > 0.0)?HIGH:LOW);
-    } else {
-      // We're somewhere in the middle of the current interval.
-      unsigned long place_in_pulse = now - pwm_time;
-      if (place_in_pulse >= outputDuty)
-        digitalWrite(ELEMENT_TWO_PIN, LOW); // their pulse is over - turn the juice off
-      if (place_in_pulse >= (PWM_PULSE_WIDTH - outputDuty))
-        digitalWrite(ELEMENT_ONE_PIN, HIGH); // their pulse is ready to begin - turn the juice on
-    }
+
+    setOvenState();
     
     // Now update the set point.
     // What was the last target temp? That's where we're coming *from* in this phase
@@ -574,4 +649,62 @@ void loop() {
 
     pid.Compute();   
   }
+}
+
+void pidAutotune() {
+  display.clear();
+  display.setCursor(0,0);
+  display.print(P("Autotuning..."));
+
+  outputDuty = AUTOTUNE_START_VALUE;
+  aTune.SetNoiseBand(AUTOTUNE_NOISE);
+  aTune.SetOutputStep(AUTOTUNE_STEP);
+  aTune.SetLookbackSec((int)AUTOTUNE_LOOKBACK);
+  aTune.SetControlType(1);
+
+  while(! aTune.Runtime()) {
+    wdt_reset();
+    setOvenState();
+    updateTemp();
+
+    unsigned long now = millis();
+    if (lastDisplayUpdate == 0 || now - lastDisplayUpdate > DISPLAY_UPDATE_INTERVAL) {
+      lastDisplayUpdate = now;
+
+      for(uint8_t i = 0; i < 17; i++) {
+        p_buffer[i] = ' ';
+      }
+
+      // Print current temperature
+      display.setCursor(0, 1);
+      displayTemp(currentTemp);
+
+      for(uint8_t i = 0; i < 17; i++) {
+        p_buffer[i] = ' ';
+      }
+
+      // Print current duty cycle
+      display.setCursor(8, 1);
+      int mils = (outputDuty * 1000) / PWM_PULSE_WIDTH;
+      sprintf(p_buffer, "%3d.%1d%%   ", mils / 10, mils % 10);
+      display.print(p_buffer);
+    }
+  }
+  display.clear();
+  display.setCursor(0,0);
+  display.print(P("Autotuning Complete"));
+  Delay(5000);
+
+  int address = K_VALUES_EEPROM_ADDRESS;
+  EEPROM.write(address, K_VALUES_EEPROM_MAGIC_VALUE);
+  address += sizeof(byte);
+  EEPROM.put(address, aTune.GetKp());
+  address += sizeof(double);
+  EEPROM.put(address, aTune.GetKi());
+  address += sizeof(double);
+  EEPROM.put(address, aTune.GetKd());
+
+  pid.SetTunings(aTune.GetKp(), aTune.GetKi(), aTune.GetKd());
+
+  finish();
 }
