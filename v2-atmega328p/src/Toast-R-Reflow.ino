@@ -105,6 +105,11 @@ board, which is model II.
 
 #define SIZE_OF_PROG_POINTER (sizeof(void*))
 
+// If you're powering this off of a noisy power supply, intermittent
+// faults are possible; this will allow them to occur, until this
+// number of faults occur sequentially
+#define MAX_SEQUENTIAL_FAULTS 10
+
 // Thanks to Gareth Evans at http://todbot.com/blog/2008/06/19/how-to-do-big-strings-in-arduino/
 // Note that you must be careful not to use this macro more than once per "statement", lest you
 // risk overwriting the buffer before it is used. So no using it inside methods that return
@@ -208,6 +213,7 @@ unsigned long start_time, pwm_time, lastDisplayUpdate, button_debounce_time, but
 unsigned char active_profile;
 unsigned int display_mode;
 boolean faulted; // This is whether or not we've *noticed* the fault.
+uint8_t fault_count = 0;
 
 double setPoint, currentTemp, outputDuty, referenceTemp;
 boolean fault; // This is set by updateTemp()
@@ -310,15 +316,17 @@ static inline void updateTemp() {
 
   fault = (temp_bits & 0x10000) != 0;
   fault_bits = temp_bits & 0x7;
-  
-  int16_t x = (int16_t)(temp_bits >> 16); // Take the top word and make it signed.
-  x >>= 2; // This shift will be sign-extended because we copied it to an int type
-  currentTemp = x / 4.0; // Now divide and float
-  int16_t y = (int16_t)(temp_bits);
-  y >>= 4;
-  referenceTemp = y / 16.0;
-  
+
+  if(!fault) {
+    int16_t x = (int16_t)(temp_bits >> 16); // Take the top word and make it signed.
+    x >>= 2; // This shift will be sign-extended because we copied it to an int type
+    currentTemp = x / 4.0; // Now divide and float
+    int16_t y = (int16_t)(temp_bits);
+    y >>= 4;
+    referenceTemp = y / 16.0;
+  }
 }
+
 
 void setOvenState() {
   // The concept here is that we have two heating elements
@@ -351,6 +359,7 @@ void setOvenState() {
     if (place_in_pulse >= (PWM_PULSE_WIDTH - outputDuty))
       digitalWrite(ELEMENT_ONE_PIN, HIGH); // their pulse is ready to begin - turn the juice on
   }
+}
 
 
 // Call this when the cycle is finished. Also, call it at
@@ -494,7 +503,8 @@ void loop() {
   wdt_reset();
   updateTemp();
   if (fault) {
-    if (!faulted) {
+    fault_count++;
+    if (!faulted && fault_count > MAX_SEQUENTIAL_FAULTS) {
       faulted = true;
       finish(true);
       // complain bitterly
@@ -507,6 +517,7 @@ void loop() {
     }
     return;
   } else {
+    fault_count = 0;
     if (faulted) {
       // If the fault just went away, clean up the display
       finish();
