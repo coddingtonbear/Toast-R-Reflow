@@ -109,6 +109,7 @@ board, which is model II.
 // If you're powering this off of a noisy power supply, intermittent
 // faults are possible; this will allow them to occur, until this
 // number of faults occur sequentially
+#define TEMP_SAMPLES_PER_MEASURE 10
 #define MAX_SEQUENTIAL_FAULTS 10
 #define AUTOTUNE_ENABLED
 #define LATE_DELAY_ENABLED
@@ -322,12 +323,21 @@ static inline void updateTemp() {
   fault_bits = temp_bits & 0x7;
 
   if(!fault) {
+    double thisTemp;
     int16_t x = (int16_t)(temp_bits >> 16); // Take the top word and make it signed.
     x >>= 2; // This shift will be sign-extended because we copied it to an int type
-    currentTemp = x / 4.0; // Now divide and float
+    thisTemp = x / 4.0; // Now divide and float
     int16_t y = (int16_t)(temp_bits);
     y >>= 4;
     referenceTemp = y / 16.0;
+
+    if(currentTemp == 0) {
+      currentTemp = thisTemp;
+    } else {
+      currentTemp = (
+        (currentTemp * (TEMP_SAMPLES_PER_MEASURE - 1)) + thisTemp
+      ) / TEMP_SAMPLES_PER_MEASURE;
+    }
   }
 }
 
@@ -502,6 +512,7 @@ void setup() {
   display_mode = 0;
   active_profile = 0;
   faulted = false;
+  currentTemp = 0;
   
   finish();
 }
