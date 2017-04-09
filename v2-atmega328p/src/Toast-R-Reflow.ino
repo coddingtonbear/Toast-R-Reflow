@@ -722,6 +722,7 @@ void incrementLateDelay() {
 }
 
 void pidAutotune() {
+#ifdef AUTOTUNE_ENABLED
   display.clear();
   display.setCursor(0,0);
   display.print(P("Autotuning..."));
@@ -777,4 +778,5 @@ void pidAutotune() {
   pid.SetTunings(aTune.GetKp(), aTune.GetKi(), aTune.GetKd());
 
   finish();
+#endif
 }
