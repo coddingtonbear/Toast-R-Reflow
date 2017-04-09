@@ -71,14 +71,14 @@ board, which is model II.
 #define K_VALUES_EEPROM_ADDRESS 0
 #define K_VALUES_EEPROM_MAGIC_VALUE 224
 
-#define AUTOTUNE_START_VALUE 20
+#define AUTOTUNE_START_VALUE 300
 #define AUTOTUNE_LOOKBACK 30
-#define AUTOTUNE_STEP 10
+#define AUTOTUNE_STEP 100
 #define AUTOTUNE_NOISE 4
 
 // The number of milliseconds for each cycle of the control output.
 // The duty cycle is adjusted by the PID.
-#define PWM_PULSE_WIDTH 100
+#define PWM_PULSE_WIDTH 1000
 
 // If we see any state change on the button, we ignore all changes for this long
 #define BUTTON_DEBOUNCE_INTERVAL 50
@@ -109,9 +109,14 @@ board, which is model II.
 // If you're powering this off of a noisy power supply, intermittent
 // faults are possible; this will allow them to occur, until this
 // number of faults occur sequentially
-#define TEMP_SAMPLES_PER_MEASURE 10
 #define MAX_SEQUENTIAL_FAULTS 10
+// No matter what you do, your measurements are going to be a little
+// jumpy given the convection taking place in your oven; we can make it
+// a little smoother by averaging multiple samples
+#define TEMP_SAMPLES_PER_MEASURE 100
+// Enable the user to select Autotuning by holding the button
 #define AUTOTUNE_ENABLED
+// Automatically delay the next phase if we haven't yet reached temp
 #define LATE_DELAY_ENABLED
 
 // Thanks to Gareth Evans at http://todbot.com/blog/2008/06/19/how-to-do-big-strings-in-arduino/
@@ -612,7 +617,7 @@ void loop() {
       if (start_time == 0)
         Serial.print("Wait ");
       else {
-        int sec = (int)((now - start_time) / 1000);
+        long sec = ((now - start_time) / 1000);
         sprintf(p_buffer, "%02d:%02d:%02d ", sec / 3600, (sec/60) % 60, sec % 60);
         Serial.print(p_buffer);
       }
@@ -627,6 +632,7 @@ void loop() {
         Serial.print(outputDuty / PWM_PULSE_WIDTH * 100);
         Serial.print('%');
         Serial.print("\r\n");
+        /*
         Serial.print(currentPhase);
         Serial.print("\t");
         Serial.print(position_in_phase);
@@ -640,6 +646,7 @@ void loop() {
         Serial.print(late_delay);
         Serial.print(" * 1000) = ");
         Serial.println(now-start_time - (late_delay * 1000));
+        */
       }
     }
     if (doDisplayUpdate) {
