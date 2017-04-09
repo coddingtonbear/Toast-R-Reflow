@@ -109,7 +109,7 @@ board, which is model II.
 // If you're powering this off of a noisy power supply, intermittent
 // faults are possible; this will allow them to occur, until this
 // number of faults occur sequentially
-#define MAX_SEQUENTIAL_FAULTS 10
+#define MAX_SEQUENTIAL_FAULTS 100
 // No matter what you do, your measurements are going to be a little
 // jumpy given the convection taking place in your oven; we can make it
 // a little smoother by averaging multiple samples
@@ -538,6 +538,7 @@ void loop() {
       display.print(P("Fault bits: "));
       display.print(fault_bits);
     }
+    Delay(10);
     return;
   } else {
     fault_count = 0;
