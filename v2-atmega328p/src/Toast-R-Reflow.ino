@@ -61,6 +61,7 @@ board, which is model II.
 
 // How often do we update the displayed temp?
 #define DISPLAY_UPDATE_INTERVAL 500
+#define DISPLAY_ALTERNATE_INTERVAL 2000
 
 // fiddle these knobs
 #define K_P 150
@@ -109,6 +110,8 @@ board, which is model II.
 // faults are possible; this will allow them to occur, until this
 // number of faults occur sequentially
 #define MAX_SEQUENTIAL_FAULTS 10
+#define AUTOTUNE_ENABLED
+#define LATE_DELAY_ENABLED
 
 // Thanks to Gareth Evans at http://todbot.com/blog/2008/06/19/how-to-do-big-strings-in-arduino/
 // Note that you must be careful not to use this macro more than once per "statement", lest you
@@ -209,9 +212,10 @@ PROGMEM PGM_P const profile_names[] = { name_a_txt, name_b_txt, name_c_txt };
 
 LiquidCrystal display(LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
-unsigned long start_time, pwm_time, lastDisplayUpdate, button_debounce_time, button_press_time, lastSerialLog;
+unsigned long start_time, pwm_time, lastDisplayUpdate, lastDisplayAlternate, button_debounce_time, button_press_time, lastSerialLog, late_delay;
 unsigned char active_profile;
 unsigned int display_mode;
+boolean display_main;
 boolean faulted; // This is whether or not we've *noticed* the fault.
 uint8_t fault_count = 0;
 
@@ -367,6 +371,7 @@ void setOvenState() {
 void finish(boolean silent = false) {
   start_time = 0;
   pwm_time = 0;
+  late_delay = 0;
   pid.SetMode(MANUAL);
   digitalWrite(ELEMENT_ONE_PIN, LOW);
   digitalWrite(ELEMENT_TWO_PIN, LOW);
@@ -488,8 +493,10 @@ void setup() {
   pid.SetMode(MANUAL);
   
   lastDisplayUpdate = 0;
+  lastDisplayAlternate = 0;
   lastSerialLog = 0;
   start_time = 0;
+  late_delay = 0;
   button_debounce_time = 0;
   button_press_time = 0;
   display_mode = 0;
@@ -564,7 +571,7 @@ void loop() {
   } else {
     // We're running.
     unsigned long now = millis();
-    unsigned long profile_time = now - start_time;
+    unsigned long profile_time = now - start_time - (late_delay * 1000);
     int currentPhase = getCurrentPhase(profile_time);
     if (currentPhase < 0) {
       // All done!
@@ -577,6 +584,10 @@ void loop() {
     memcpy_P(&this_point, pgm_read_ptr(((uint16_t)profile) + currentPhase * SIZE_OF_PROG_POINTER), sizeof(struct curve_point));
        
     unsigned int event = checkEvent();
+    // Where are we in this phase?
+    unsigned long position_in_phase = profile_time - phaseStartTime(currentPhase);
+    // What fraction of the current phase is that?
+    double fraction_of_phase = (double)position_in_phase / (double) this_point.duration_millis;
     switch(event) {
       case EVENT_LONG_PUSH:
         finish();
@@ -601,7 +612,23 @@ void loop() {
       else {
         formatTemp(setPoint);
         Serial.print(p_buffer);
+        Serial.print(' ');
+        Serial.print(outputDuty / PWM_PULSE_WIDTH * 100);
+        Serial.print('%');
         Serial.print("\r\n");
+        Serial.print(currentPhase);
+        Serial.print("\t");
+        Serial.print(position_in_phase);
+        Serial.print("\t");
+        Serial.print(fraction_of_phase * 100);
+        Serial.println("%");
+        Serial.print(now);
+        Serial.print(" - ");
+        Serial.print(start_time);
+        Serial.print(" - (");
+        Serial.print(late_delay);
+        Serial.print(" * 1000) = ");
+        Serial.println(now-start_time - (late_delay * 1000));
       }
     }
     if (doDisplayUpdate) {
@@ -609,15 +636,25 @@ void loop() {
         
       // The time
       display.setCursor(8, 0);
-      unsigned long profile_time = now - start_time;
-      unsigned int sec = profile_time / 1000;
+      unsigned long sec = profile_time / 1000 + late_delay;
       sprintf(p_buffer, "%02d:%02d:%02d ", sec / 3600, (sec/60) % 60, sec % 60);
       display.print(p_buffer);
-    
-      // The phase name    
-      display.setCursor(0, 0);
-      strncpy_P(p_buffer, this_point.phase_name, sizeof(p_buffer));
-      display.print(p_buffer);
+
+      if (display_main || late_delay == 0) {
+        // The phase name    
+        display.setCursor(0, 0);
+        strncpy_P(p_buffer, this_point.phase_name, sizeof(p_buffer));
+        display.print(p_buffer);
+      } else {
+        // The current delay
+        display.setCursor(0, 0);
+        sprintf(p_buffer, "+%ds", late_delay);
+        display.print(p_buffer);
+      }
+      if(now - lastDisplayAlternate > DISPLAY_ALTERNATE_INTERVAL) {
+        lastDisplayAlternate = now;
+        display_main = !display_main;
+      }
       for(unsigned int j = 0; j < 8 - strlen(p_buffer); j++) display.print(' ');
         
       display.setCursor(8, 1);
@@ -649,17 +686,28 @@ void loop() {
         last_temp = referenceTemp; // Assume this is the ambient temp.
       }
     }
-    // Where are we in this phase?
-    unsigned long position_in_phase = profile_time - phaseStartTime(currentPhase);
-    // What fraction of the current phase is that?
-    double fraction_of_phase = ((double)position_in_phase) / ((double) this_point.duration_millis);
     // How much is the temperature going to change during this phase?
     double temp_delta = this_point.target_temp - last_temp;
     // The set point is the fraction of the delta that's the same as the fraction of the complete phase.
     setPoint = temp_delta * fraction_of_phase + last_temp;
 
+    if(
+        ((this_point.duration_millis - position_in_phase) < 1000)
+        && ((this_point.target_temp - currentTemp) > 1)
+    ) {
+        incrementLateDelay();
+    }
+
     pid.Compute();   
   }
+}
+
+void incrementLateDelay() {
+#ifdef LATE_DELAY_ENABLED
+  if(late_delay < 300) {
+    late_delay += 1;
+  }
+#endif
 }
 
 void pidAutotune() {
