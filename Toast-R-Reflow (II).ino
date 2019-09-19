@@ -181,9 +181,31 @@ const struct curve_point PT_C_2 PROGMEM = { name_c_txt, 36000000, 125.0 };
 
 PGM_VOID_P const profile_c[] PROGMEM = { &PT_C_1, &PT_C_2, &PT_END };
 
-#define PROFILE_COUNT 3
-PROGMEM PGM_VOID_P const profiles[] = { profile_a, profile_b, profile_c };
-PROGMEM PGM_P const profile_names[] = { name_a_txt, name_b_txt, name_c_txt };
+const char name_d_txt[] PROGMEM = "Dry PLA"
+
+const struct curve_point PT_D_1 PROGMEM = { PH_txt, 90000, 45.0 };
+const struct curve_point PT_D_2 PROGMEM = { name_d_txt, 6 * 60 * 60 * 1000, 45.0 };  // 6 hours
+
+PGM_VOID_P const profile_d[] PROGMEM = { &PT_D_1, &PT_D_2, &PT_END };
+
+const char name_e_txt[] PROGMEM = "Dry PETG"
+
+const struct curve_point PT_E_1 PROGMEM = { PH_txt, 90000, 65.0 };
+const struct curve_point PT_E_2 PROGMEM = { name_e_txt, 6 * 60 * 60 * 1000, 65.0 };  // 6 hours
+
+PGM_VOID_P const profile_e[] PROGMEM = { &PT_E_1, &PT_E_2, &PT_END };
+
+const char name_f_txt[] PROGMEM = "Dry Silica"
+
+const struct curve_point PT_F_1 PROGMEM = { PH_txt, 90000, 80.0 };
+const struct curve_point PT_F_2 PROGMEM = { name_f_txt, 3 * 60 * 60 * 1000, 80.0 }; // 3 hours
+
+PGM_VOID_P const profile_f[] PROGMEM = { &PT_F_1, &PT_F_2, &PT_END };
+
+
+#define PROFILE_COUNT 6
+PROGMEM PGM_VOID_P const profiles[] = { profile_a, profile_b, profile_c, profile_d, profile_e, profile_f};
+PROGMEM PGM_P const profile_names[] = { name_a_txt, name_b_txt, name_c_txt, name_d_txt, name_e_txt, name_f_txt};
 
 // missing from the Arduino IDE
 #ifndef pgm_read_ptr
