@@ -98,7 +98,7 @@ board, which is model II.
 // Note that you must be careful not to use this macro more than once per "statement", lest you
 // risk overwriting the buffer before it is used. So no using it inside methods that return
 // strings that are then used in snprintf statements that themselves use this macro.
-char p_buffer[17];
+char p_buffer[32];
 #define P(str) (strncpy_P(p_buffer, PSTR(str), sizeof(p_buffer)), p_buffer)
 
 #define VERSION "(II) 1.2"
@@ -126,7 +126,7 @@ const char N_txt[] PROGMEM = "";
 const char RF_txt[] PROGMEM = "Reflow";
 const char CL_txt[] PROGMEM = "Cool";
 
-const char name_a_txt[] PROGMEM = "SnPb";
+const char name_a_txt[] PROGMEM = "Refl SnPb";
 // Next, each curve point, which represents a section of time where the oven will
 // transition from the previous point to the next. It's defined as how much time we
 // will spend, and what the target will be at the end of that time.
@@ -153,7 +153,7 @@ const struct curve_point PT_A_5 PROGMEM = { CL_txt, 90000, 100.0 };
 // Now the actual table itself.
 PGM_VOID_P const profile_a[] PROGMEM = { &PT_A_1, &PT_A_2, &PT_A_3, &PT_A_4, &PT_A_5, &PT_END };
 
-const char name_b_txt[] PROGMEM = "RoHS";
+const char name_b_txt[] PROGMEM = "Refl RoHS";
 
 // Drift from the ambient temperature to 150 deg C over 90 seconds.
 const struct curve_point PT_B_1 PROGMEM = { PH_txt, 90000, 150.0 };
@@ -173,7 +173,7 @@ const struct curve_point PT_B_5 PROGMEM = { CL_txt, 90000, 100.0 };
 
 PGM_VOID_P const profile_b[] PROGMEM = { &PT_B_1, &PT_B_2, &PT_B_3, &PT_B_4, &PT_B_5, &PT_END };
 
-const char name_c_txt[] PROGMEM = "Bake";
+const char name_c_txt[] PROGMEM = "Bake ICs";
 
 // Drift from ambient to 125 deg C over an hour
 const struct curve_point PT_C_1 PROGMEM = { PH_txt, 3600000, 125.0 };
@@ -184,21 +184,21 @@ PGM_VOID_P const profile_c[] PROGMEM = { &PT_C_1, &PT_C_2, &PT_END };
 
 const char name_d_txt[] PROGMEM = "Dry PLA";
 
-const struct curve_point PT_D_1 PROGMEM = { PH_txt, 90000, 45.0 };
+const struct curve_point PT_D_1 PROGMEM = { PH_txt, 10000, 45.0 };
 const struct curve_point PT_D_2 PROGMEM = { name_d_txt, 6 * 60 * 60 * 1000, 45.0 };  // 6 hours
 
 PGM_VOID_P const profile_d[] PROGMEM = { &PT_D_1, &PT_D_2, &PT_END };
 
 const char name_e_txt[] PROGMEM = "Dry PETG";
 
-const struct curve_point PT_E_1 PROGMEM = { PH_txt, 90000, 65.0 };
+const struct curve_point PT_E_1 PROGMEM = { PH_txt, 10000, 65.0 };
 const struct curve_point PT_E_2 PROGMEM = { name_e_txt, 6 * 60 * 60 * 1000, 65.0 };  // 6 hours
 
 PGM_VOID_P const profile_e[] PROGMEM = { &PT_E_1, &PT_E_2, &PT_END };
 
-const char name_f_txt[] PROGMEM = "Dry Silica";
+const char name_f_txt[] PROGMEM = "Dry Slca";
 
-const struct curve_point PT_F_1 PROGMEM = { PH_txt, 90000, 80.0 };
+const struct curve_point PT_F_1 PROGMEM = { PH_txt, 10000, 80.0 };
 const struct curve_point PT_F_2 PROGMEM = { name_f_txt, 3 * 60 * 60 * 1000, 80.0 }; // 3 hours
 
 PGM_VOID_P const profile_f[] PROGMEM = { &PT_F_1, &PT_F_2, &PT_END };
@@ -217,11 +217,8 @@ LiquidCrystal display(LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 unsigned long start_time, pwm_time, lastDisplayUpdate, button_debounce_time, button_press_time, lastSerialLog;
 unsigned char active_profile;
 unsigned int display_mode;
-boolean faulted; // This is whether or not we've *noticed* the fault.
 
 double setPoint, currentTemp, outputDuty, referenceTemp;
-boolean fault; // This is set by updateTemp()
-unsigned char fault_bits; // This too.
 
 PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
 
@@ -315,8 +312,10 @@ static inline void updateTemp() {
   // Both temps are 2s compliment signed numbers.
   // x is in 1/4 degree units. y is in 1/16 degree units.
 
-  fault = (temp_bits & 0x10000) != 0;
-  fault_bits = temp_bits & 0x7;
+  bool fault = (temp_bits & 0x10000) != 0;
+  if(fault) {
+    return;
+  }
   
   int16_t x = (int16_t)(temp_bits >> 16); // Take the top word and make it signed.
   x >>= 2; // This shift will be sign-extended because we copied it to an int type
@@ -338,9 +337,12 @@ void finish(boolean silent = false) {
   digitalWrite(ELEMENT_TWO_PIN, LOW);
   if (silent) return;
   display.clear();
-  display.print(P("Waiting"));
-  display.setCursor(10, 0);
+  display.setCursor(0, 0);
+  display.print(P("Ready: "));
+  display.setCursor(7, 0);
+  display.print("         ");
   strncpy_P(p_buffer, (char*)pgm_read_ptr(((uint16_t)profile_names) + SIZE_OF_PROG_POINTER * active_profile), sizeof(p_buffer));
+  display.setCursor(7, 0);
   display.print(p_buffer);
 }
 
@@ -400,7 +402,6 @@ void setup() {
   button_press_time = 0;
   display_mode = 0;
   active_profile = 0;
-  faulted = false;
   
   display.clear();
   
@@ -416,27 +417,6 @@ void setup() {
 void loop() {
   wdt_reset();
   updateTemp();
-  if (fault) {
-    if (!faulted) {
-      faulted = true;
-      finish(true);
-      // complain bitterly
-      display.clear();
-      display.setCursor(2, 0);
-      display.print(P("THERM. FAULT"));
-      display.setCursor(0, 1);
-      display.print(P("Fault bits: "));
-      display.print(fault_bits);
-    }
-    return;
-  } else {
-    if (faulted) {
-      // If the fault just went away, clean up the display
-      finish();
-    }
-    faulted = false;
-    // and carry on...
-  }
   boolean doDisplayUpdate = false;
   {
     unsigned long now = millis();
@@ -451,13 +431,15 @@ void loop() {
     // We're not running. Wait for the button.
     unsigned int event = checkEvent();
     switch(event) {
-      case EVENT_LONG_PUSH:
+      case EVENT_SHORT_PUSH:
         if (++active_profile >= PROFILE_COUNT) active_profile = 0;
-        display.setCursor(10, 0);
+        display.setCursor(7, 0);
+        display.print("         ");
         strncpy_P(p_buffer, (char*)pgm_read_ptr(((uint16_t)profile_names) + SIZE_OF_PROG_POINTER * active_profile), sizeof(p_buffer));
+        display.setCursor(7, 0);
         display.print(p_buffer);
         break;
-      case EVENT_SHORT_PUSH:
+      case EVENT_LONG_PUSH:
         // We really want to just re-initialize the PID.
         // The only way to do that with the existing API
         // is to transition from MANUAL to AUTOMATIC.
@@ -477,6 +459,11 @@ void loop() {
     int currentPhase = getCurrentPhase(profile_time);
     if (currentPhase < 0) {
       // All done!
+      finish();
+      display.clear();
+      display.setCursor(0, 0);
+      display.print(P("Cycle Complete"));
+      delay(5000);
       finish();
       return;
     }
