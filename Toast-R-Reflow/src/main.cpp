@@ -101,7 +101,7 @@ board, which is model II.
 char p_buffer[32];
 #define P(str) (strncpy_P(p_buffer, PSTR(str), sizeof(p_buffer)), p_buffer)
 
-#define VERSION "(II) 1.2"
+#define VERSION "(II) 1.3-CBEAR"
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
