@@ -60,6 +60,7 @@ board, which is model II.
 
 // How often do we update the displayed temp?
 #define DISPLAY_UPDATE_INTERVAL 500
+#define SERIAL_UPDATE_INTERVAL 500
 
 // fiddle these knobs
 #define K_P 150
@@ -214,7 +215,7 @@ PROGMEM PGM_P const profile_names[] = { name_a_txt, name_b_txt, name_c_txt, name
 
 LiquidCrystal display(LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
-unsigned long start_time, pwm_time, lastDisplayUpdate, button_debounce_time, button_press_time, lastSerialLog;
+unsigned long start_time, pwm_time, lastDisplayUpdate, lastSerialUpdate, button_debounce_time, button_press_time;
 unsigned char active_profile;
 unsigned int display_mode;
 
@@ -396,7 +397,7 @@ void setup() {
   pid.SetMode(MANUAL);
   
   lastDisplayUpdate = 0;
-  lastSerialLog = 0;
+  lastSerialUpdate = 0;
   start_time = 0;
   button_debounce_time = 0;
   button_press_time = 0;
@@ -414,6 +415,56 @@ void setup() {
   finish();
 }
 
+struct Status {
+  char mode[10];
+  char phaseName[25];
+  unsigned long millis;
+  unsigned long seconds;
+  double output;
+  double targetTemp;
+  double actualTemp;
+};
+
+Status getStatusStruct() {
+  Status stat;
+  strncpy_P(stat.mode, (char*)pgm_read_ptr(((uint16_t)profile_names) + SIZE_OF_PROG_POINTER * active_profile), sizeof(p_buffer));
+
+  stat.millis = millis();
+  stat.seconds = stat.millis - start_time;
+  int currentPhase = getCurrentPhase(stat.seconds);
+  void* profile = currentProfile();
+  struct curve_point this_point;
+  memcpy_P(&this_point, pgm_read_ptr(((uint16_t)profile) + currentPhase * SIZE_OF_PROG_POINTER), sizeof(struct curve_point));
+  strncpy_P(stat.phaseName, this_point.phase_name, 10);
+
+  stat.targetTemp = setPoint;
+  stat.actualTemp = currentTemp;
+  stat.output = outputDuty;
+
+  return stat;
+}
+
+void sendStatusMessage() {
+  Status stat = getStatusStruct();
+
+  Serial.print("<mode=");
+  Serial.print(stat.mode);
+  Serial.print("|phase=");
+  Serial.print(stat.phaseName);
+  Serial.print("|millis=");
+  Serial.print(stat.millis);
+  Serial.print("|seconds=");
+  Serial.print(stat.seconds);
+  Serial.print("|target=");
+  Serial.print(stat.targetTemp);
+  Serial.print("|actual=");
+  Serial.print(stat.actualTemp);
+  Serial.print("|output=");
+  Serial.print(stat.output);
+  Serial.println(">");
+
+}
+
 void loop() {
   wdt_reset();
   updateTemp();
@@ -427,6 +478,14 @@ void loop() {
       displayTemp(currentTemp);
     }
   }
+  {
+    unsigned long now = millis();
+    if (lastSerialUpdate == 0 || now - lastSerialUpdate > SERIAL_UPDATE_INTERVAL) {
+      lastSerialUpdate = now;
+      sendStatusMessage();
+    }
+  }
+  
   if (start_time == 0) {
     // We're not running. Wait for the button.
     unsigned int event = checkEvent();
@@ -480,25 +539,6 @@ void loop() {
       case EVENT_SHORT_PUSH:
         display_mode ^= 1; // pick the other mode
         break;
-    }
-    if (lastSerialLog == 0 || now - lastSerialLog > SERIAL_LOG_INTERVAL) {
-      lastSerialLog = now;
-      if (start_time == 0)
-        Serial.print("Wait ");
-      else {
-        int sec = (int)((now - start_time) / 1000);
-        sprintf(p_buffer, "%02d:%02d:%02d ", sec / 3600, (sec/60) % 60, sec % 60);
-        Serial.print(p_buffer);
-      }
-      formatTemp(currentTemp);
-      Serial.print(p_buffer);
-      if (start_time == 0)
-        Serial.print("\r\n");
-      else {
-        formatTemp(setPoint);
-        Serial.print(p_buffer);
-        Serial.print("\r\n");
-      }
     }
     if (doDisplayUpdate) {
       // more display updates to do.
