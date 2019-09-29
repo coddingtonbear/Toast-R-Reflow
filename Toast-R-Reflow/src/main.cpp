@@ -62,10 +62,25 @@ board, which is model II.
 #define DISPLAY_UPDATE_INTERVAL 500
 #define SERIAL_UPDATE_INTERVAL 500
 
-// fiddle these knobs
-#define K_P 150
-#define K_I 0.1
-#define K_D 10
+struct PidSetting {
+  double k_p;
+  double k_i;
+  double k_d;
+
+  PidSetting(uint8_t p, uint8_t i, uint8_t d) {
+    k_p = p;
+    k_i = i;
+    k_d = d;
+  }
+};
+
+// Use an aggressive PID for reflow so we can
+// keep up with the target temp
+PidSetting reflow = PidSetting(150, 0.1, 10);
+// Use a more conservative setting for when we're
+// drying things; the temperature cielings are
+// riskier to approach
+PidSetting dry = PidSetting(30, 0, 75);
 
 // The number of milliseconds for each cycle of the control output.
 // The duty cycle is adjusted by the PID.
@@ -207,6 +222,7 @@ PGM_VOID_P const profile_f[] PROGMEM = { &PT_F_1, &PT_F_2, &PT_END };
 #define PROFILE_COUNT 6
 PROGMEM PGM_VOID_P const profiles[] = { profile_a, profile_b, profile_c, profile_d, profile_e, profile_f};
 PROGMEM PGM_P const profile_names[] = { name_a_txt, name_b_txt, name_c_txt, name_d_txt, name_e_txt, name_f_txt};
+PidSetting profile_pid[] = {reflow, reflow, dry, dry, dry, dry};
 
 // missing from the Arduino IDE
 #ifndef pgm_read_ptr
@@ -221,7 +237,7 @@ unsigned int display_mode;
 
 double setPoint, currentTemp, outputDuty, referenceTemp;
 
-PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
+PID pid(&currentTemp, &outputDuty, &setPoint, 0, 0, 0, DIRECT);
 
 // Delay, but pet the watchdog while doing it.
 static void Delay(unsigned long ms) {
@@ -427,15 +443,21 @@ struct Status {
 
 Status getStatusStruct() {
   Status stat;
-  strncpy_P(stat.mode, (char*)pgm_read_ptr(((uint16_t)profile_names) + SIZE_OF_PROG_POINTER * active_profile), sizeof(p_buffer));
 
   stat.millis = millis();
-  stat.seconds = stat.millis - start_time;
-  int currentPhase = getCurrentPhase(stat.seconds);
-  void* profile = currentProfile();
-  struct curve_point this_point;
-  memcpy_P(&this_point, pgm_read_ptr(((uint16_t)profile) + currentPhase * SIZE_OF_PROG_POINTER), sizeof(struct curve_point));
-  strncpy_P(stat.phaseName, this_point.phase_name, 10);
+  if(start_time > 0) {
+    stat.seconds = stat.millis - start_time;
+    strncpy_P(stat.mode, (char*)pgm_read_ptr(((uint16_t)profile_names) + SIZE_OF_PROG_POINTER * active_profile), sizeof(p_buffer));
+    int currentPhase = getCurrentPhase(stat.seconds);
+    void* profile = currentProfile();
+    struct curve_point this_point;
+    memcpy_P(&this_point, pgm_read_ptr(((uint16_t)profile) + currentPhase * SIZE_OF_PROG_POINTER), sizeof(struct curve_point));
+    strncpy_P(stat.phaseName, this_point.phase_name, sizeof(p_buffer));
+  } else {
+    stat.seconds = 0;
+    strncpy_P(stat.mode, "", sizeof(p_buffer));
+    strncpy_P(stat.phaseName, "", sizeof(p_buffer));
+  }
 
   stat.targetTemp = setPoint;
   stat.actualTemp = currentTemp;
@@ -506,8 +528,11 @@ void loop() {
         // set the mode to MANUAL (which is otherwise
         // pointless because we don't call Compute() when
         // the oven isn't running).
-        pid.SetMode(AUTOMATIC);
         start_time = millis();
+        
+        PidSetting settings = profile_pid[active_profile];
+        pid.SetMode(AUTOMATIC);
+        pid.SetTunings(settings.k_p, settings.k_i, settings.k_d);
         return;
     }
     
