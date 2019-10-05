@@ -62,6 +62,8 @@ board, which is model II.
 #define DISPLAY_UPDATE_INTERVAL 500
 #define SERIAL_UPDATE_INTERVAL 500
 
+#define TEMP_HIT_COEFFICIENT 0.97
+
 struct PidSetting {
   double k_p;
   double k_i;
@@ -137,6 +139,9 @@ struct curve_point {
 // In order to put the operating profile into PROGMEM, we have to "unroll" the entire thing
 // so that we can insure that each separate piece makes it into PROGMEM. First, all of the
 // curve point name strings.
+
+int8_t currentPhase = -1;
+unsigned long currentPhaseStarted = 0;
 
 const char PH_txt[] PROGMEM = "Preheat";
 const char SK_txt[] PROGMEM = "Soak";
@@ -351,6 +356,8 @@ static inline void updateTemp() {
 void finish(boolean silent = false) {
   start_time = 0;
   pwm_time = 0;
+  currentPhaseStarted = 0;
+  currentPhase = -1;
   pid.SetMode(MANUAL);
   digitalWrite(ELEMENT_ONE_PIN, LOW);
   digitalWrite(ELEMENT_TWO_PIN, LOW);
@@ -369,30 +376,53 @@ static inline void* currentProfile() {
   return pgm_read_ptr(((uint16_t)profiles) + SIZE_OF_PROG_POINTER * active_profile);
 }
 
-// Which phase are we in now? (or -1 for finished)
-static inline int getCurrentPhase(unsigned long time) {
-  unsigned long so_far = 0;
-  for(int i = 0; true; i++) {
+curve_point getPhaseByIndex(uint8_t idx) {
     struct curve_point this_point;
-    memcpy_P(&this_point, pgm_read_ptr(((uint16_t)currentProfile()) + i * SIZE_OF_PROG_POINTER), sizeof(struct curve_point));
-    if (this_point.phase_name == NULL) break;
-    if (so_far + this_point.duration_millis > time) { // we're in THIS portion of the profile
-      return i;
-    }
-    so_far += this_point.duration_millis;
-  }
-  return -1;
+    memcpy_P(&this_point, pgm_read_ptr(((uint16_t)currentProfile()) + idx * SIZE_OF_PROG_POINTER), sizeof(struct curve_point));
+
+    return this_point;
 }
 
-// How many milliseconds into a cycle does the given phase number start?
-static inline unsigned long phaseStartTime(int phase) {
-  unsigned long so_far = 0;
-  for(int i = 0; i < phase; i++) {
-    struct curve_point this_point;
-    memcpy_P(&this_point, pgm_read_ptr(((uint16_t)currentProfile()) + i * SIZE_OF_PROG_POINTER), sizeof(struct curve_point));
-    so_far += this_point.duration_millis;
+// Which phase are we in now? (or -1 for finished)
+static inline int getCurrentPhase() {
+  // Calculate our current phase and whether we've reached our target temperature
+  if(currentPhase < 0) {
+    currentPhase = 0;
+    currentPhaseStarted = millis();
   }
-  return so_far;
+
+  curve_point lastCyclePhase = getPhaseByIndex(currentPhase);
+  bool isIncrease = true;
+
+  if(currentPhase > 0) {
+    curve_point lastPoint = getPhaseByIndex(currentPhase - 1);
+    if(lastPoint.target_temp > lastCyclePhase.target_temp) {
+      isIncrease = false;
+    }
+  }
+
+  bool advancePhase = false;
+  if(millis() - currentPhaseStarted > lastCyclePhase.duration_millis) {
+    if(isIncrease && currentTemp >= (lastCyclePhase.target_temp * TEMP_HIT_COEFFICIENT)) {
+      advancePhase = true;
+    } else if(!isIncrease && currentTemp <= lastCyclePhase.target_temp) {
+      advancePhase = true;
+    } else if(!lastCyclePhase.wait) {
+      advancePhase = true;
+    }
+  }
+
+  if(advancePhase) {
+    currentPhase++;
+    currentPhaseStarted = millis();
+  }
+
+  curve_point thisCyclePhase = getPhaseByIndex(currentPhase);
+  if(thisCyclePhase.phase_name == NULL) {
+    currentPhase = -1;
+  }
+
+  return currentPhase;
 }
 
 void setup() {
@@ -541,8 +571,7 @@ void loop() {
   } else {
     // We're running.
     unsigned long now = millis();
-    unsigned long profile_time = now - start_time;
-    int currentPhase = getCurrentPhase(profile_time);
+    int currentPhase = getCurrentPhase();
     if (currentPhase < 0) {
       // All done!
       finish();
@@ -640,9 +669,12 @@ void loop() {
       }
     }
     // Where are we in this phase?
-    unsigned long position_in_phase = profile_time - phaseStartTime(currentPhase);
+    unsigned long position_in_phase = millis() - currentPhaseStarted;
     // What fraction of the current phase is that?
     double fraction_of_phase = ((double)position_in_phase) / ((double) this_point.duration_millis);
+    if(fraction_of_phase > 1) {
+      fraction_of_phase = 1;
+    }
     // How much is the temperature going to change during this phase?
     double temp_delta = this_point.target_temp - last_temp;
     // The set point is the fraction of the delta that's the same as the fraction of the complete phase.
