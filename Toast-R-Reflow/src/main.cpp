@@ -127,6 +127,8 @@ struct curve_point {
   // The setpoint will drift smoothly across the phase from the last
   // set point to this temperature, arriving there at the very end.
   double target_temp;
+  // Wait until reaching this temperature -- as long as it takes
+  bool wait;
 };
 // This table is the complete operational profile of the oven.
 // This example is intended for tin-lead based paste. For RoHS
@@ -148,23 +150,23 @@ const char name_a_txt[] PROGMEM = "Refl SnPb";
 // will spend, and what the target will be at the end of that time.
 
 // This special entry ends a profile. Always add it to the end!
-const struct curve_point PT_END PROGMEM = { NULL, 0, 0.0 };
+const struct curve_point PT_END PROGMEM = { NULL, 0, 0.0, false};
 
 // Drift from the ambient temperature to 150 deg C over 90 seconds.
-const struct curve_point PT_A_1 PROGMEM = { PH_txt, 90000, 150.0 };
+const struct curve_point PT_A_1 PROGMEM = { PH_txt, 90000, 150.0, true};
 // Drift more slowly up to 180 deg C over 60 seconds.
-const struct curve_point PT_A_2 PROGMEM = { SK_txt, 60000, 180.0 };
+const struct curve_point PT_A_2 PROGMEM = { SK_txt, 60000, 180.0, true};
 // This entry will cause the setpoint to "snap" to the next temperature rather
 // than drift over the course of an interval. The name won't be displayed because the duration is 0,
 // but a NULL name will end the table, so use an empty string instead.
 // This will force the oven to move to the reflow temperature as quickly as possible.
-const struct curve_point PT_A_3 PROGMEM = { N_txt, 0, 230.0 };
+const struct curve_point PT_A_3 PROGMEM = { N_txt, 0, 230.0, true};
 // It's going to take around 80 seconds to get to peak. Hang out there a bit.
-const struct curve_point PT_A_4 PROGMEM = { RF_txt, 90000, 230.0 };
+const struct curve_point PT_A_4 PROGMEM = { RF_txt, 90000, 230.0, false};
 // There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
 // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
 // with cooling, then this entry will compensate for that.
-const struct curve_point PT_A_5 PROGMEM = { CL_txt, 90000, 100.0 };
+const struct curve_point PT_A_5 PROGMEM = { CL_txt, 90000, 100.0, false};
 
 // Now the actual table itself.
 PGM_VOID_P const profile_a[] PROGMEM = { &PT_A_1, &PT_A_2, &PT_A_3, &PT_A_4, &PT_A_5, &PT_END };
@@ -172,43 +174,43 @@ PGM_VOID_P const profile_a[] PROGMEM = { &PT_A_1, &PT_A_2, &PT_A_3, &PT_A_4, &PT
 const char name_b_txt[] PROGMEM = "Refl RoHS";
 
 // Drift from the ambient temperature to 150 deg C over 90 seconds.
-const struct curve_point PT_B_1 PROGMEM = { PH_txt, 90000, 150.0 };
+const struct curve_point PT_B_1 PROGMEM = { PH_txt, 90000, 150.0, true};
 // Drift more slowly up to 180 deg C over 60 seconds.
-const struct curve_point PT_B_2 PROGMEM = { SK_txt, 60000, 180.0 };
+const struct curve_point PT_B_2 PROGMEM = { SK_txt, 60000, 180.0, true};
 // This entry will cause the setpoint to "snap" to the next temperature rather
 // than drift over the course of an interval. The name won't be displayed because the duration is 0,
 // but a NULL name will end the table, so use an empty string instead.
 // This will force the oven to move to the reflow temperature as quickly as possible.
-const struct curve_point PT_B_3 PROGMEM = { N_txt, 0, 250.0 };
+const struct curve_point PT_B_3 PROGMEM = { N_txt, 0, 250.0, true};
 // It's going to take around 80 seconds to get to peak. Hang out there a bit.
-const struct curve_point PT_B_4 PROGMEM = { RF_txt, 90000, 250.0 };
+const struct curve_point PT_B_4 PROGMEM = { RF_txt, 90000, 250.0, false};
 // There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
 // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
 // with cooling, then this entry will compensate for that.
-const struct curve_point PT_B_5 PROGMEM = { CL_txt, 90000, 100.0 };
+const struct curve_point PT_B_5 PROGMEM = { CL_txt, 90000, 100.0, false};
 
 PGM_VOID_P const profile_b[] PROGMEM = { &PT_B_1, &PT_B_2, &PT_B_3, &PT_B_4, &PT_B_5, &PT_END };
 
 const char name_c_txt[] PROGMEM = "Bake ICs";
 
 // Drift from ambient to 125 deg C over an hour
-const struct curve_point PT_C_1 PROGMEM = { PH_txt, 3600000, 125.0 };
+const struct curve_point PT_C_1 PROGMEM = { PH_txt, 3600000, 125.0, true};
 // Stay there for 10 more hours
-const struct curve_point PT_C_2 PROGMEM = { name_c_txt, 36000000, 125.0 };
+const struct curve_point PT_C_2 PROGMEM = { name_c_txt, 36000000, 125.0, false};
 
 PGM_VOID_P const profile_c[] PROGMEM = { &PT_C_1, &PT_C_2, &PT_END };
 
 const char name_d_txt[] PROGMEM = "Dry PLA";
 
-const struct curve_point PT_D_1 PROGMEM = { PH_txt, 10000, 45.0 };
-const struct curve_point PT_D_2 PROGMEM = { name_d_txt, 6 * 60 * 60 * 1000, 45.0 };  // 6 hours
+const struct curve_point PT_D_1 PROGMEM = { PH_txt, 10000, 45.0, true};
+const struct curve_point PT_D_2 PROGMEM = { name_d_txt, 6 * 60 * 60 * 1000, 45.0, false};  // 6 hours
 
 PGM_VOID_P const profile_d[] PROGMEM = { &PT_D_1, &PT_D_2, &PT_END };
 
 const char name_e_txt[] PROGMEM = "Dry PETG";
 
-const struct curve_point PT_E_1 PROGMEM = { PH_txt, 10000, 65.0 };
-const struct curve_point PT_E_2 PROGMEM = { name_e_txt, 6 * 60 * 60 * 1000, 65.0 };  // 6 hours
+const struct curve_point PT_E_1 PROGMEM = { PH_txt, 10000, 65.0, true};
+const struct curve_point PT_E_2 PROGMEM = { name_e_txt, 6 * 60 * 60 * 1000, 65.0, false};  // 6 hours
 
 PGM_VOID_P const profile_e[] PROGMEM = { &PT_E_1, &PT_E_2, &PT_END };
 
