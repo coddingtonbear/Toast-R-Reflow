@@ -466,11 +466,14 @@ void setup() {
 struct Status {
   char mode[10];
   char phaseName[25];
+  int8_t phaseIndex;
+  unsigned long phaseStarted;
   unsigned long millis;
   unsigned long seconds;
   double output;
   double targetTemp;
   double actualTemp;
+  double phaseTargetTemp;
 };
 
 Status getStatusStruct() {
@@ -480,15 +483,25 @@ Status getStatusStruct() {
   if(start_time > 0) {
     stat.seconds = stat.millis - start_time;
     strncpy_P(stat.mode, (char*)pgm_read_ptr(((uint16_t)profile_names) + SIZE_OF_PROG_POINTER * active_profile), sizeof(p_buffer));
-    int currentPhase = getCurrentPhase(stat.seconds);
+    int currentPhase = getCurrentPhase();
     void* profile = currentProfile();
     struct curve_point this_point;
     memcpy_P(&this_point, pgm_read_ptr(((uint16_t)profile) + currentPhase * SIZE_OF_PROG_POINTER), sizeof(struct curve_point));
     strncpy_P(stat.phaseName, this_point.phase_name, sizeof(p_buffer));
+
+    curve_point phase = getPhaseByIndex(getCurrentPhase());
+
+    stat.phaseTargetTemp = phase.target_temp;
+    stat.phaseIndex = currentPhase;
+    stat.phaseStarted = currentPhaseStarted;
   } else {
     stat.seconds = 0;
-    strncpy_P(stat.mode, "", sizeof(p_buffer));
-    strncpy_P(stat.phaseName, "", sizeof(p_buffer));
+    stat.mode[0] = '\0';
+    stat.phaseName[0] = '\0';
+
+    stat.phaseTargetTemp = 0;
+    stat.phaseIndex = -1;
+    stat.phaseStarted = 0;
   }
 
   stat.targetTemp = setPoint;
@@ -515,6 +528,12 @@ void sendStatusMessage() {
   Serial.print(stat.actualTemp);
   Serial.print("|output=");
   Serial.print(stat.output);
+  Serial.print("|phaseIndex=");
+  Serial.print(stat.phaseIndex);
+  Serial.print("|phaseStarted=");
+  Serial.print(stat.phaseStarted);
+  Serial.print("|phaseTargetTemp=");
+  Serial.print(stat.phaseTargetTemp);
   Serial.println(">");
 
 }
