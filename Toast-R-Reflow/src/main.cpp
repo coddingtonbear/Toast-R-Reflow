@@ -80,7 +80,7 @@ PidSetting reflow = PidSetting(150, 0.1, 10);
 // Use a more conservative setting for when we're
 // drying things; the temperature cielings are
 // riskier to approach
-PidSetting dry = PidSetting(30, 0, 75);
+PidSetting dry = PidSetting(10, 0, 30);
 
 // The number of milliseconds for each cycle of the control output.
 // The duty cycle is adjusted by the PID.
